@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+
+"""
+This example:
+
+1. Connects to the model specified or the current model
+2. Gets the annotations
+
+"""
+import argparse
+import logging
+import sys
+
+from juju import loop
+from juju.model import Model
+from juju.client import client
+
+
+async def main(args):
+    model = Model()
+    await model.connect(args.model)
+
+    try:
+        app = model.applications[args.application]
+
+        facade = client.AnnotationsFacade.from_connection(app.connection)
+
+        results = (await facade.Get([{"tag": app.tag}])).results
+        if len(results) != 1:
+            print("unexpected number of results {}".format(len(results)))
+            return
+        result = results[0]
+        if result.error is not None:
+            print("error: {}".format(result.error))
+            return
+      
+        for key, value in result.annotations.items():
+            print("{}: {}".format(key, value))
+    finally:
+        await model.disconnect()
+
+
+if __name__ == '__main__':
+    # TODO: handle set
+    # TODO: handle machine annotations
+    # TODO: handle model annotations
+    # TODO: handle unit annnotations
+    parser = argparse.ArgumentParser()
+    parser.add_argument("application", help="which application to act on")
+    parser.add_argument("--debug", help="output debugging", action="store_true")
+    parser.add_argument("--describe", help="short description", action="store_true")
+    parser.add_argument("-m", "--model", help="model name")
+    args = parser.parse_args()
+
+    if args.describe:
+        print("allows setting and getting of annotations")
+        sys.exit(0)
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+        ws_logger = logging.getLogger('websockets.protocol')
+        ws_logger.setLevel(logging.INFO)
+
+
+    loop.run(main(args))
+
