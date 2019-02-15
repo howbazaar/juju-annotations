@@ -9,11 +9,51 @@ This example:
 """
 import argparse
 import logging
+import re
 import sys
+import yaml
 
 from juju import loop
 from juju.model import Model
 from juju.client import client
+
+
+_application_snippet = "(?:[a-z][a-z0-9]*(?:-[a-z0-9]*[a-z][a-z0-9]*)*)"
+_number_snippet      = "(?:0|[1-9][0-9]*)"
+_container_type_snippet = "[a-z]+"
+_container_snippet   = "/" + _container_type_snippet + "/" + _number_snippet
+_machine_snippet     = _number_snippet + "(?:" + _container_snippet + ")*"
+
+valid_application = re.compile("^" + _application_snippet + "$")
+valid_unit = re.compile("^" + _application_snippet + "/" + _number_snippet + "$")
+valid_machine = re.compile("^" + _machine_snippet + "$")
+
+
+def get_entity(model, entity):
+    if entity == "@model":
+        return model
+
+    if valid_application.match(entity):
+        return model.applications[entity]
+
+    if valid_machine.match(entity):
+        return model.machines[entity]
+
+    if valid_unit.match(entity):
+        return model.units[entity]
+
+    raise RuntimeError("unknown entity type")
+
+
+def make_dict(options):
+    result = {}
+    for item in options:
+        bits = item.split("=",1)
+        if len(bits) < 2:
+            raise ValueError("option expected to be 'key=value', got {}".format(item))
+        key, value = bits
+        result[key] = value
+    return result
 
 
 async def main(args):
@@ -21,32 +61,29 @@ async def main(args):
     await model.connect(args.model)
 
     try:
-        app = model.applications[args.application]
+        entity = get_entity(model, args.entity)
 
-        facade = client.AnnotationsFacade.from_connection(app.connection)
+        if len(args.annotation) == 0:
+            annotations = await entity.get_annotations()
+            yaml.dump(annotations, stream=sys.stdout, default_flow_style=False)
+            return
 
-        results = (await facade.Get([{"tag": app.tag}])).results
-        if len(results) != 1:
-            print("unexpected number of results {}".format(len(results)))
-            return
-        result = results[0]
-        if result.error is not None:
-            print("error: {}".format(result.error))
-            return
-      
-        for key, value in result.annotations.items():
-            print("{}: {}".format(key, value))
+
+        for item in args.annotation:
+            print("annotation: {}".format(item))
+        annotations = make_dict(args.annotation)
+        print("annotations: {}".format(annotations))
+
+        await entity.set_annotations(annotations)
+
     finally:
         await model.disconnect()
 
 
 if __name__ == '__main__':
-    # TODO: handle set
-    # TODO: handle machine annotations
-    # TODO: handle model annotations
-    # TODO: handle unit annnotations
-    parser = argparse.ArgumentParser()
-    parser.add_argument("application", help="which application to act on")
+    parser = argparse.ArgumentParser(prog="juju annotate")
+    parser.add_argument("entity", help="which application to act on")
+    parser.add_argument("annotation", nargs="*", help="annotations to set in the form key=value")
     parser.add_argument("--debug", help="output debugging", action="store_true")
     parser.add_argument("--describe", help="short description", action="store_true")
     parser.add_argument("-m", "--model", help="model name")
