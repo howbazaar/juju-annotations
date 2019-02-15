@@ -69,11 +69,7 @@ async def main(args):
             return
 
 
-        for item in args.annotation:
-            print("annotation: {}".format(item))
         annotations = make_dict(args.annotation)
-        print("annotations: {}".format(annotations))
-
         await entity.set_annotations(annotations)
 
     finally:
